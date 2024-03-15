@@ -2634,7 +2634,7 @@ index 000000000000..a935bbecdcc0
 +            Call->eraseFromParent();
 +        }
 +
-+        NF->getBasicBlockList().splice(NF->begin(), F->getBasicBlockList());
++        //NF->getBasicBlockList().splice(NF->begin(), F->getBasicBlockList());
 +
 +        // Loop over the argument list, transferring uses of the old arguments over to
 +        // the new arguments, also transferring over the names as well.
@@ -5010,9 +5010,9 @@ index 000000000000..8fecdefee1a5
 +          void xorSubstitution(BinaryOperator *bo);
 +          void xorSubstitutionRand(BinaryOperator *bo);
 +
-+          static bool isRequired() { return true; } // Ö±½Ó·µ»Øtrue¼´¿É
++          static bool isRequired() { return true; } // Ö±ï¿½Ó·ï¿½ï¿½ï¿½trueï¿½ï¿½ï¿½ï¿½
 +    };
-+    SubstitutionPass *createSubstitutionPass(bool flag); // ´´½¨»ù±¾¿é·Ö¸î
++    SubstitutionPass *createSubstitutionPass(bool flag); // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¸ï¿½
 +} // namespace llvm
 +
 +#endif
