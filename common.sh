@@ -49,6 +49,14 @@ clone() {
   git_clone_sha https://android.googlesource.com/toolchain/llvm_android $LLVM_ANDROID_VERSION
   git_clone_sha https://android.googlesource.com/platform/external/toolchain-utils $TOOLCHAIN_UTILS_VERSION
 
+  # o3-ndk
+  pushd llvm-project
+  for p in ../llvm-patches/*.patch; do
+    patch -p1 < $p
+  done
+  popd
+  ##
+
   # Patch the LLVM source code
   $PYTHON_CMD toolchain-utils/llvm_tools/patch_manager.py \
     --svn_version $LLVM_SVN \

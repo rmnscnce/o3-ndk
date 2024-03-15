@@ -1,4 +1,4 @@
-name: ondk build
+name: o3-ndk build
 
 on:
   workflow_dispatch:
