@@ -1,37 +1,38 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: DreamSoule <52804763+DreamSoule@users.noreply.github.com>
-Date: Fri, 15 Mar 2024 03:13:58 +0000
-Subject: [PATCH] llvm: lib: Passes: Add obfuscation
+From: nobody <nobody@localhost>
+Date: Mon, Sep 17 2001 00:00:00 +0000
+Subject: [PATCH] llvm: Add support for obfuscation
 
+Signed-off-by: nobody <nobody@localhost>
 ---
  llvm/lib/Passes/CMakeLists.txt                |   13 +
  .../Passes/Obfuscation/BogusControlFlow.cpp   |  681 +++++++++
  .../lib/Passes/Obfuscation/BogusControlFlow.h |   50 +
  llvm/lib/Passes/Obfuscation/CryptoUtils.cpp   | 1254 +++++++++++++++++
  llvm/lib/Passes/Obfuscation/CryptoUtils.h     |  147 ++
- llvm/lib/Passes/Obfuscation/Flattening.cpp    |  111 ++
+ llvm/lib/Passes/Obfuscation/Flattening.cpp    |  217 +++
  llvm/lib/Passes/Obfuscation/Flattening.h      |   30 +
  .../Obfuscation/IPObfuscationContext.cpp      |  331 +++++
  .../Passes/Obfuscation/IPObfuscationContext.h |   60 +
- .../lib/Passes/Obfuscation/IndirectBranch.cpp |  153 ++
+ .../lib/Passes/Obfuscation/IndirectBranch.cpp |  151 ++
  llvm/lib/Passes/Obfuscation/IndirectBranch.h  |   41 +
- llvm/lib/Passes/Obfuscation/IndirectCall.cpp  |  159 +++
+ llvm/lib/Passes/Obfuscation/IndirectCall.cpp  |  158 +++
  llvm/lib/Passes/Obfuscation/IndirectCall.h    |   39 +
- .../Obfuscation/IndirectGlobalVariable.cpp    |  168 +++
+ .../Obfuscation/IndirectGlobalVariable.cpp    |  165 +++
  .../Obfuscation/IndirectGlobalVariable.h      |   42 +
- .../Passes/Obfuscation/ObfuscationOptions.cpp |  114 ++
+ .../Passes/Obfuscation/ObfuscationOptions.cpp |  116 ++
  .../Passes/Obfuscation/ObfuscationOptions.h   |   26 +
- .../Passes/Obfuscation/SplitBasicBlock.cpp    |  143 ++
+ .../Passes/Obfuscation/SplitBasicBlock.cpp    |  142 ++
  llvm/lib/Passes/Obfuscation/SplitBasicBlock.h |   33 +
- .../Passes/Obfuscation/StringEncryption.cpp   |  489 +++++++
+ .../Passes/Obfuscation/StringEncryption.cpp   |  488 +++++++
  .../lib/Passes/Obfuscation/StringEncryption.h |  109 ++
  llvm/lib/Passes/Obfuscation/Substitution.cpp  |  507 +++++++
  llvm/lib/Passes/Obfuscation/Substitution.h    |   96 ++
- llvm/lib/Passes/Obfuscation/Utils.cpp         |  263 ++++
- llvm/lib/Passes/Obfuscation/Utils.h           |   39 +
- llvm/lib/Passes/Obfuscation/compat/CallSite.h |  767 ++++++++++
- llvm/lib/Passes/PassBuilder.cpp               |   45 +
- 27 files changed, 5910 insertions(+)
+ llvm/lib/Passes/Obfuscation/Utils.cpp         |  249 ++++
+ llvm/lib/Passes/Obfuscation/Utils.h           |   35 +
+ llvm/lib/Passes/Obfuscation/compat/CallSite.h |  766 ++++++++++
+ llvm/lib/Passes/PassBuilder.cpp               |   40 +
+ 27 files changed, 5986 insertions(+)
  create mode 100644 llvm/lib/Passes/Obfuscation/BogusControlFlow.cpp
  create mode 100644 llvm/lib/Passes/Obfuscation/BogusControlFlow.h
  create mode 100644 llvm/lib/Passes/Obfuscation/CryptoUtils.cpp
@@ -59,13 +60,14 @@ Subject: [PATCH] llvm: lib: Passes: Add obfuscation
  create mode 100644 llvm/lib/Passes/Obfuscation/compat/CallSite.h
 
 diff --git a/llvm/lib/Passes/CMakeLists.txt b/llvm/lib/Passes/CMakeLists.txt
-index 576d0f3ff442..107b0039fd5d 100644
+index 576d0f3ff442..99a444ef5602 100644
 --- a/llvm/lib/Passes/CMakeLists.txt
 +++ b/llvm/lib/Passes/CMakeLists.txt
-@@ -6,6 +6,19 @@ add_llvm_component_library(LLVMPasses
+@@ -5,6 +5,19 @@ add_llvm_component_library(LLVMPasses
+   PassBuilderPipelines.cpp
    PassPlugin.cpp
    StandardInstrumentations.cpp
- 
++  
 +  Obfuscation/Utils.cpp
 +  Obfuscation/CryptoUtils.cpp
 +  Obfuscation/ObfuscationOptions.cpp
@@ -78,10 +80,9 @@ index 576d0f3ff442..107b0039fd5d 100644
 +  Obfuscation/IndirectBranch.cpp
 +  Obfuscation/IndirectCall.cpp
 +  Obfuscation/IndirectGlobalVariable.cpp
-+
+ 
    ADDITIONAL_HEADER_DIRS
    ${LLVM_MAIN_INCLUDE_DIR}/llvm
-   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Passes
 diff --git a/llvm/lib/Passes/Obfuscation/BogusControlFlow.cpp b/llvm/lib/Passes/Obfuscation/BogusControlFlow.cpp
 new file mode 100644
 index 000000000000..2710716f91f8
@@ -2244,15 +2245,15 @@ index 000000000000..6a1aee516c94
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/Flattening.cpp b/llvm/lib/Passes/Obfuscation/Flattening.cpp
 new file mode 100644
-index 000000000000..dec2b3678751
+index 000000000000..8a77217e5b91
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/Flattening.cpp
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,217 @@
 +#include "Utils.h"
 +#include "CryptoUtils.h"
 +#include "Flattening.h"
 +#include "SplitBasicBlock.h"
-+//#include "llvm/Transforms/Utils/LowerSwitch.h"
++#include "llvm/Transforms/Utils/LowerSwitch.h"
 +// namespace
 +using namespace llvm;
 +using std::vector;
@@ -2265,9 +2266,12 @@ index 000000000000..dec2b3678751
 +    Function *tmp = &F; // 传入的Function
 +    // 判断是否需要开启控制流平坦化
 +    if (toObfuscate(flag, tmp, "fla")) {
-+      INIT_CONTEXT(F);
-+      // outs()<<"[Soule] debug. "<< F.getName()<<" \n";
-+      if (flatten(*tmp)) {
++
++      // Lower switch
++      LowerSwitchPass lower;
++      lower.run(F, AM);
++
++      if (flatten(F)) {
 +        ++Flattened;
 +      }
 +      return PreservedAnalyses::none();
@@ -2275,85 +2279,188 @@ index 000000000000..dec2b3678751
 +    return PreservedAnalyses::all();
 +}
 +
-+
 +bool FlatteningPass::flatten(Function &F) {
-+    // 基本块数量不超过1则无需平坦化
-+    if(F.size() <= 1){
-+        //outs() << "\033[0;33mFunction size is lower then one\033[0m\n"; // warning
++    vector<BasicBlock *> origBB;
++    BasicBlock *loopEntry;
++    BasicBlock *loopEnd;
++    LoadInst *load;
++    SwitchInst *switchI;
++    AllocaInst *switchVar;
++
++    // SCRAMBLER
++    char scrambling_key[16];
++    llvm::cryptoutils->get_bytes(scrambling_key, 16);
++    // END OF SCRAMBLER
++
++    // Save all original BB
++    for (Function::iterator i = F.begin(); i != F.end(); ++i) {
++        BasicBlock *tmp = &*i;
++        origBB.push_back(tmp);
++
++        BasicBlock *bb = &*i;
++        if (isa<InvokeInst>(bb->getTerminator())) {
++          return false;
++        }
++    }
++
++    // Nothing to flatten
++    if (origBB.size() <= 1) {
 +        return false;
 +    }
-+    // 将除入口块（第一个基本块）以外的基本块保存到一个 vector 容器中，便于后续处理
-+    // 首先保存所有基本块
-+    vector<BasicBlock*> origBB;
-+    for(BasicBlock &BB: F){
-+        origBB.push_back(&BB);
-+    }
-+    // 从vector中去除第一个基本块
++
++    // Remove first BB
 +    origBB.erase(origBB.begin());
-+    BasicBlock &entryBB = F.getEntryBlock();
-+    // 如果第一个基本块的末尾是条件跳转，单独分离
-+    if(BranchInst *br = dyn_cast<BranchInst>(entryBB.getTerminator())){
-+        if(br->isConditional()){
-+            BasicBlock *newBB = entryBB.splitBasicBlock(br, "newBB");
-+            origBB.insert(origBB.begin(), newBB);
++
++    // Get a pointer on the first BB
++    Function::iterator tmp = F.begin(); //++tmp;
++    BasicBlock *insert = &*tmp;
++
++    // If main begin with an if
++    BranchInst *br = NULL;
++    if (isa<BranchInst>(insert->getTerminator())) {
++        br = cast<BranchInst>(insert->getTerminator());
++    }
++
++    if ((br != NULL && br->isConditional()) ||
++        insert->getTerminator()->getNumSuccessors() > 1) {
++        BasicBlock::iterator i = insert->end();
++        --i;
++
++        if (insert->size() > 1) {
++          --i;
++        }
++
++        BasicBlock *tmpBB = insert->splitBasicBlock(i, "first");
++        origBB.insert(origBB.begin(), tmpBB);
++    }
++
++    // Remove jump
++    insert->getTerminator()->eraseFromParent();
++
++    Type *I32Ty = Type::getInt32Ty(F.getContext());
++    // Create switch variable and set as it
++    switchVar = new AllocaInst(I32Ty, 0, "switchVar", insert);
++    new StoreInst(ConstantInt::get(
++                      I32Ty, llvm::cryptoutils->scramble32(0, scrambling_key)),
++                  switchVar, insert);
++
++    // Create main loop
++    loopEntry = BasicBlock::Create(F.getContext(), "loopEntry", &F, insert);
++    loopEnd = BasicBlock::Create(F.getContext(), "loopEnd", &F, insert);
++
++    load = new LoadInst(I32Ty, switchVar, "switchVar", loopEntry);
++
++    // Move first BB on top
++    insert->moveBefore(loopEntry);
++    BranchInst::Create(loopEntry, insert);
++
++    // loopEnd jump to loopEntry
++    BranchInst::Create(loopEntry, loopEnd);
++
++    BasicBlock *swDefault =
++        BasicBlock::Create(F.getContext(), "switchDefault", &F, loopEnd);
++    BranchInst::Create(loopEnd, swDefault);
++
++    // Create switch instruction itself and set condition
++    switchI = SwitchInst::Create(&*F.begin(), swDefault, 0, loopEntry);
++    switchI->setCondition(load);
++
++    // Remove branch jump from 1st BB and make a jump to the while
++    F.begin()->getTerminator()->eraseFromParent();
++
++    BranchInst::Create(loopEntry, &*F.begin());
++
++    // Put all BB in the switch
++    for (vector<BasicBlock *>::iterator b = origBB.begin(); b != origBB.end();
++         ++b) {
++        BasicBlock *i = *b;
++        ConstantInt *numCase = NULL;
++
++        // Move the BB inside the switch (only visual, no code logic)
++        i->moveBefore(loopEnd);
++
++        // Add case to switch
++        numCase = cast<ConstantInt>(
++            ConstantInt::get(switchI->getCondition()->getType(),
++                             llvm::cryptoutils->scramble32(
++                                 switchI->getNumCases(), scrambling_key)));
++        switchI->addCase(numCase, i);
++    }
++
++    // Recalculate switchVar
++    for (vector<BasicBlock *>::iterator b = origBB.begin(); b != origBB.end();
++         ++b) {
++        BasicBlock *i = *b;
++        ConstantInt *numCase = NULL;
++
++        // Ret BB
++        if (i->getTerminator()->getNumSuccessors() == 0) {
++          continue;
++        }
++
++        // If it's a non-conditional jump
++        if (i->getTerminator()->getNumSuccessors() == 1) {
++          // Get successor and delete terminator
++          BasicBlock *succ = i->getTerminator()->getSuccessor(0);
++          i->getTerminator()->eraseFromParent();
++
++          // Get next case
++          numCase = switchI->findCaseDest(succ);
++
++          // If next case == default case (switchDefault)
++          if (numCase == NULL) {
++            numCase = cast<ConstantInt>(ConstantInt::get(
++                switchI->getCondition()->getType(),
++                llvm::cryptoutils->scramble32(switchI->getNumCases() - 1,
++                                              scrambling_key)));
++          }
++
++          // Update switchVar and jump to the end of loop
++          new StoreInst(numCase, load->getPointerOperand(), i);
++          BranchInst::Create(loopEnd, i);
++          continue;
++        }
++
++        // If it's a conditional jump
++        if (i->getTerminator()->getNumSuccessors() == 2) {
++          // Get next cases
++          ConstantInt *numCaseTrue =
++              switchI->findCaseDest(i->getTerminator()->getSuccessor(0));
++          ConstantInt *numCaseFalse =
++              switchI->findCaseDest(i->getTerminator()->getSuccessor(1));
++
++          // Check if next case == default case (switchDefault)
++          if (numCaseTrue == NULL) {
++            numCaseTrue = cast<ConstantInt>(ConstantInt::get(
++                switchI->getCondition()->getType(),
++                llvm::cryptoutils->scramble32(switchI->getNumCases() - 1,
++                                              scrambling_key)));
++          }
++
++          if (numCaseFalse == NULL) {
++            numCaseFalse = cast<ConstantInt>(ConstantInt::get(
++                switchI->getCondition()->getType(),
++                llvm::cryptoutils->scramble32(switchI->getNumCases() - 1,
++                                              scrambling_key)));
++          }
++
++          // Create a SelectInst
++          BranchInst *br = cast<BranchInst>(i->getTerminator());
++          SelectInst *sel =
++              SelectInst::Create(br->getCondition(), numCaseTrue, numCaseFalse,
++                                 "", i->getTerminator());
++
++          // Erase terminator
++          i->getTerminator()->eraseFromParent();
++
++          // Update switchVar and jump to the end of loop
++          new StoreInst(sel, load->getPointerOperand(), i);
++          BranchInst::Create(loopEnd, i);
++          continue;
 +        }
 +    }
 +
-+    // 创建分发块和返回块
-+    BasicBlock *dispatchBB = BasicBlock::Create(*CONTEXT, "dispatchBB", &F, &entryBB);
-+    BasicBlock *returnBB = BasicBlock::Create(*CONTEXT, "returnBB", &F, &entryBB);
-+    BranchInst::Create(dispatchBB, returnBB);
-+    entryBB.moveBefore(dispatchBB);
-+    // 去除第一个基本块末尾的跳转
-+    entryBB.getTerminator()->eraseFromParent();
-+    // 使第一个基本块跳转到dispatchBB
-+    BranchInst *brDispatchBB = BranchInst::Create(dispatchBB, &entryBB);
-+
-+    // 在入口块插入alloca和store指令创建并初始化switch变量，初始值为随机值
-+    int randNumCase = rand();
-+    AllocaInst *swVarPtr = new AllocaInst(TYPE_I32, 0, "swVar.ptr", brDispatchBB);
-+    new StoreInst(CONST_I32(randNumCase), swVarPtr, brDispatchBB);
-+    // 在分发块插入load指令读取switch变量
-+    LoadInst *swVar = new LoadInst(TYPE_I32, swVarPtr, "swVar", false, dispatchBB);
-+    // 在分发块插入switch指令实现基本块的调度
-+    BasicBlock *swDefault = BasicBlock::Create(*CONTEXT, "swDefault", &F, returnBB);
-+    BranchInst::Create(returnBB, swDefault);
-+    SwitchInst *swInst = SwitchInst::Create(swVar, swDefault, 0, dispatchBB);
-+    // 将原基本块插入到返回块之前，并分配case值
-+    for(BasicBlock *BB : origBB){
-+        BB->moveBefore(returnBB);
-+        swInst->addCase(CONST_I32(randNumCase), BB);
-+        randNumCase = rand();
-+    }
-+
-+    // 在每个基本块最后添加修改switch变量的指令和跳转到返回块的指令
-+    for(BasicBlock *BB : origBB){
-+        // retn BB
-+        if(BB->getTerminator()->getNumSuccessors() == 0){
-+            continue;
-+        }
-+        // 非条件跳转
-+        else if(BB->getTerminator()->getNumSuccessors() == 1){
-+            BasicBlock *sucBB = BB->getTerminator()->getSuccessor(0);
-+            BB->getTerminator()->eraseFromParent();
-+            ConstantInt *numCase = swInst->findCaseDest(sucBB);
-+            new StoreInst(numCase, swVarPtr, BB);
-+            BranchInst::Create(returnBB, BB);
-+        }
-+        // 条件跳转
-+        else if(BB->getTerminator()->getNumSuccessors() == 2){
-+            ConstantInt *numCaseTrue = swInst->findCaseDest(BB->getTerminator()->getSuccessor(0));
-+            ConstantInt *numCaseFalse = swInst->findCaseDest(BB->getTerminator()->getSuccessor(1));
-+            BranchInst *br = cast<BranchInst>(BB->getTerminator());
-+            SelectInst *sel = SelectInst::Create(br->getCondition(), numCaseTrue, numCaseFalse, "", BB->getTerminator());
-+            BB->getTerminator()->eraseFromParent();
-+            new StoreInst(sel, swVarPtr, BB);
-+            BranchInst::Create(returnBB, BB);
-+        }
-+    }
-+    fixStack(F); // 修复逃逸变量和PHI指令
-+
-+  return true;
++    fixStack(F);
 +}
 +
 +FlatteningPass *llvm::createFlattening(bool flag) {
@@ -2362,7 +2469,7 @@ index 000000000000..dec2b3678751
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/Flattening.h b/llvm/lib/Passes/Obfuscation/Flattening.h
 new file mode 100644
-index 000000000000..be7ac1b4cbc3
+index 000000000000..42a8985d4a2e
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/Flattening.h
 @@ -0,0 +1,30 @@
@@ -2377,7 +2484,7 @@ index 000000000000..be7ac1b4cbc3
 +#include "llvm/Support/raw_ostream.h"
 +#include "llvm/IR/LegacyPassManager.h"
 +#include "llvm/Transforms/Utils/Local.h"
-+//#include "llvm/Transforms/IPO/PassManagerBuilder.h"
++#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 +// System libs
 +#include <vector>
 +#include <cstdlib>
@@ -2399,12 +2506,12 @@ index 000000000000..be7ac1b4cbc3
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/IPObfuscationContext.cpp b/llvm/lib/Passes/Obfuscation/IPObfuscationContext.cpp
 new file mode 100644
-index 000000000000..a935bbecdcc0
+index 000000000000..73b8c748bcbf
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/IPObfuscationContext.cpp
 @@ -0,0 +1,331 @@
 +// #include "llvm/Transforms/Obfuscation/ObfuscationPassManager.h"
-+//#include "llvm/Transforms/IPO/PassManagerBuilder.h" // Soule.llvm17.update
++#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 +#include "llvm/IR/LegacyPassManager.h"
 +#include "llvm/Support/raw_ostream.h"
 +#include "llvm/Support/FileSystem.h"
@@ -2510,7 +2617,7 @@ index 000000000000..a935bbecdcc0
 +        SmallVector<AttributeSet, 8> ArgAttrVec;
 +        const AttributeList &PAL = F->getAttributes();
 +
-+        Params.push_back(Type::getInt32Ty(F->getContext())); // Soule LLVM 17.0.6?  getInt32PtrTy -> getInt32Ty
++        Params.push_back(Type::getInt32PtrTy(F->getContext()));
 +        ArgAttrVec.push_back(AttributeSet());
 +
 +        unsigned i = 0;
@@ -2653,7 +2760,7 @@ index 000000000000..a935bbecdcc0
 +        IntegerType *I32Ty = Type::getInt32Ty(NF->getContext());
 +        IRBuilder<> IRB(&NF->getEntryBlock().front());
 +        Value *Ptr = IRB.CreateBitCast(NF->arg_begin(), I32Ty->getPointerTo());
-+        LoadInst *MySecret = IRB.CreateLoad(Ptr->getType(),Ptr);
++        LoadInst *MySecret = IRB.CreateLoad(Ptr->getType()->getPointerElementType(),Ptr);
 +
 +        IPOInfo *Info = IPOInfoMap[F];
 +        Info->SecretLI->eraseFromParent();
@@ -2682,7 +2789,7 @@ index 000000000000..a935bbecdcc0
 +        uint32_t V = RandomEngine.get_uint32_t();
 +        ConstantInt *SecretCI = ConstantInt::get(I32Ty, V, false);
 +        IRB.CreateStore(SecretCI, CallerSlot);
-+        LoadInst *MySecret = IRB.CreateLoad(CallerSlot->getType(),CallerSlot, "MySecret");
++        LoadInst *MySecret = IRB.CreateLoad(CallerSlot->getType()->getPointerElementType(),CallerSlot, "MySecret");
 +
 +        IPOInfo *Info = new IPOInfo(CallerSlot, CalleeSlot, MySecret, SecretCI);
 +        return Info;
@@ -2804,10 +2911,10 @@ index 000000000000..b8474302792f
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/IndirectBranch.cpp b/llvm/lib/Passes/Obfuscation/IndirectBranch.cpp
 new file mode 100644
-index 000000000000..cf66d40b97c6
+index 000000000000..0b5b1470e274
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/IndirectBranch.cpp
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,151 @@
 +/*
 +LLVM Indirect Branching Pass
 +Copyright (C) 2017 Zhang(https://github.com/Naville/)
@@ -2829,9 +2936,6 @@ index 000000000000..cf66d40b97c6
 +#include <random>
 +
 +PreservedAnalyses IndirectBranchPass::run(Module &M, ModuleAnalysisManager &AM) {
-+  if (this->flag) {
-+    outs() << "[Soule] force.run.IndirectBranchPass\n";
-+  }
 +  for (Function &Fn : M) {
 +    if (toObfuscate(flag, &Fn, "ibr")) {
 +
@@ -2839,7 +2943,8 @@ index 000000000000..cf66d40b97c6
 +        continue;
 +      }
 +
-+      if (Fn.empty() || Fn.hasLinkOnceLinkage() || Fn.getSection() == ".text.startup") {
++      if (Fn.empty() || Fn.hasLinkOnceLinkage() ||
++          Fn.getSection() == ".text.startup") {
 +        continue;
 +      }
 +
@@ -3012,10 +3117,10 @@ index 000000000000..d81201bdf4a6
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/IndirectCall.cpp b/llvm/lib/Passes/Obfuscation/IndirectCall.cpp
 new file mode 100644
-index 000000000000..f799f7f02b96
+index 000000000000..c489c7ecf13a
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/IndirectCall.cpp
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,158 @@
 +#include "IndirectCall.h"
 +
 +using namespace llvm;
@@ -3031,10 +3136,9 @@ index 000000000000..f799f7f02b96
 +PreservedAnalyses IndirectCallPass::run(Function &F, FunctionAnalysisManager &AM){
 +    // 判断是否需要开启间接调用
 +    if (toObfuscate(flag, &F, "icall")){
-+      doIndirctCall(F);
-+      return PreservedAnalyses::none();
++        doIndirctCall(F);
 +    }
-+    return PreservedAnalyses::all();
++    return PreservedAnalyses::none();
 +}
 +
 +bool IndirectCallPass::doIndirctCall(Function &Fn){
@@ -3224,10 +3328,10 @@ index 000000000000..845369457fb6
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/IndirectGlobalVariable.cpp b/llvm/lib/Passes/Obfuscation/IndirectGlobalVariable.cpp
 new file mode 100644
-index 000000000000..0cee1cee2e94
+index 000000000000..ffb9c3a8e4f2
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/IndirectGlobalVariable.cpp
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,165 @@
 +/*
 +LLVM Indirect Branching Pass
 +Copyright (C) 2017 Zhang(https://github.com/Naville/)
@@ -3250,9 +3354,6 @@ index 000000000000..0cee1cee2e94
 +
 +PreservedAnalyses IndirectGlobalVariablePass::run(Module &M, ModuleAnalysisManager &AM) {
 +
-+  if (this->flag) {
-+    outs() << "[Soule] force.run.IndirectGlobalVariablePass\n";
-+  }
 +  for (Function &Fn : M) {
 +    if (!toObfuscate(flag, &Fn, "igv")) {
 +      continue;
@@ -3448,10 +3549,10 @@ index 000000000000..f74300a6e3f4
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/ObfuscationOptions.cpp b/llvm/lib/Passes/Obfuscation/ObfuscationOptions.cpp
 new file mode 100644
-index 000000000000..ab54f10446e0
+index 000000000000..be9d805ab4d9
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/ObfuscationOptions.cpp
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,116 @@
 +#include "ObfuscationOptions.h"
 +
 +#include "llvm/Support/ErrorOr.h"
@@ -3490,8 +3591,9 @@ index 000000000000..ab54f10446e0
 +        SmallString<32> Storage;
 +        StringRef Val = sn->getValue(Storage);
 +        return Val;
++    } else {
++        return "";
 +    }
-+    return "";
 +}
 +
 +static unsigned long getIntVal(yaml::Node *n) {
@@ -3511,8 +3613,9 @@ index 000000000000..ab54f10446e0
 +bool ObfuscationOptions::skipFunction(const Twine &FName) {
 +    if (FName.str().find("goron_") == std::string::npos) {
 +        return hasFilter && FunctionFilter.count(FName.str()) == 0;
++    } else {
++        return true;
 +    }
-+    return true;
 +}
 +
 +void ObfuscationOptions::handleRoot(yaml::Node *n) {
@@ -3602,10 +3705,10 @@ index 000000000000..dac70cf431c6
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/SplitBasicBlock.cpp b/llvm/lib/Passes/Obfuscation/SplitBasicBlock.cpp
 new file mode 100644
-index 000000000000..ebdb8f87d4f6
+index 000000000000..3a5bf5290bb2
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/SplitBasicBlock.cpp
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,142 @@
 +/*
 + *  LLVM StringEncryption Pass
 +    Copyright (C) 2017 Zhang(https://github.com/Naville/)
@@ -3648,9 +3751,8 @@ index 000000000000..ebdb8f87d4f6
 +    if (toObfuscate(flag, tmp, "split")){ // 判断什么函数需要开启混淆
 +        split(tmp); // 分割流程
 +        ++Split; // 计次
-+        return PreservedAnalyses::none();
 +    }
-+    return PreservedAnalyses::all();
++    return PreservedAnalyses::none();
 +}
 +
 +/**
@@ -3792,10 +3894,10 @@ index 000000000000..540a67bf7ca9
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/StringEncryption.cpp b/llvm/lib/Passes/Obfuscation/StringEncryption.cpp
 new file mode 100644
-index 000000000000..86c7cb78a74a
+index 000000000000..fdb3db8903ed
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/StringEncryption.cpp
-@@ -0,0 +1,489 @@
+@@ -0,0 +1,488 @@
 +#include "StringEncryption.h"
 +
 +#define DEBUG_TYPE "strenc"
@@ -3919,12 +4021,11 @@ index 000000000000..86c7cb78a74a
 +}
 +
 +PreservedAnalyses StringEncryptionPass::run(Module &M, ModuleAnalysisManager &AM) {
-+  if (this->flag) {
-+    outs() << "[Soule] force.run.StringEncryptionPass\n";
++    outs() << "[Soule] run.StringEncryptionPass\n";
++
 +    if (do_StrEnc(M, AM))
-+      return PreservedAnalyses::none();
-+  }
-+  return PreservedAnalyses::all();
++        return PreservedAnalyses::none();
++    return PreservedAnalyses::all();
 +}
 +
 +void StringEncryptionPass::getRandomBytes(std::vector<uint8_t> &Bytes,
@@ -4288,7 +4389,7 @@ index 000000000000..86c7cb78a74a
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/StringEncryption.h b/llvm/lib/Passes/Obfuscation/StringEncryption.h
 new file mode 100644
-index 000000000000..36c3a5484cb7
+index 000000000000..4c9e6b63af2f
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/StringEncryption.h
 @@ -0,0 +1,109 @@
@@ -4309,7 +4410,7 @@ index 000000000000..36c3a5484cb7
 +#include "llvm/Support/CommandLine.h"
 +#include "llvm/Support/TargetSelect.h"
 +#include "llvm/Transforms/Utils/BasicBlockUtils.h"
-+//#include "llvm/Transforms/IPO/PassManagerBuilder.h"
++#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 +#include "llvm/Support/FormatVariadic.h"
 +#include "llvm/Support/SHA1.h"
 +#include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -5019,10 +5120,10 @@ index 000000000000..8fecdefee1a5
 +
 diff --git a/llvm/lib/Passes/Obfuscation/Utils.cpp b/llvm/lib/Passes/Obfuscation/Utils.cpp
 new file mode 100644
-index 000000000000..33bc9491e615
+index 000000000000..4c8ea834b5b9
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/Utils.cpp
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,249 @@
 +/**
 + * @file Utils.cpp
 + * @author SsageParuders
@@ -5041,7 +5142,6 @@ index 000000000000..33bc9491e615
 +using std::vector;
 +
 +LLVMContext *CONTEXT = nullptr;
-+bool obf_function_name_cmd = false;
 +
 +/**
 + * @brief 参考资料:https://www.jianshu.com/p/0567346fd5e8
@@ -5108,8 +5208,6 @@ index 000000000000..33bc9491e615
 +    if (f->hasAvailableExternallyLinkage() != 0) {
 +        return false;
 +    }
-+    //outs() << "[Soule] function: " << f->getName().str() << " # annotation: " << readAnnotate(f) << "\n";
-+    // 
 +    // We have to check the nofla flag first
 +    // Because .find("fla") is true for a string like "fla" or
 +    // "nofla"
@@ -5119,17 +5217,6 @@ index 000000000000..33bc9491e615
 +    // If fla annotations
 +    if (readAnnotate(f).find(attr) != std::string::npos) { // 是否开启XXX
 +        return true;
-+    }
-+    // 由于Visual Studio无法传入annotation, 增加一个使用函数名匹配是否单独开关的功能
-+    if (obf_function_name_cmd == true) { // 开启使用函数名匹配混淆功能开关
-+        if (f->getName().find("_" + attrNo + "_") != StringRef::npos) {
-+            outs() << "[Soule] " << attrNo << ".function: " << f->getName().str() << "\n";
-+            return false;
-+        }
-+        if (f->getName().find("_" + attr + "_") != StringRef::npos) {
-+            outs() << "[Soule] " << attr << ".function: " << f->getName().str() << "\n";
-+            return true;
-+        }
 +    }
 +    // If fla flag is set
 +    if (flag == true) { // 开启PASS
@@ -5237,24 +5324,24 @@ index 000000000000..33bc9491e615
 +    return str;
 +}
 +
-+// LLVM-MSVC有这个函数, 官方版LLVM没有 (LLVM:17.0.6 | LLVM-MSVC:3.2.6)
 +void llvm::LowerConstantExpr(Function &F) {
 +    SmallPtrSet<Instruction *, 8> WorkList;
 +
 +    for (inst_iterator It = inst_begin(F), E = inst_end(F); It != E; ++It) {
 +        Instruction *I = &*It;
 +
-+        if (isa<LandingPadInst>(I) || isa<CatchPadInst>(I) || isa<CatchSwitchInst>(I) || isa<CatchReturnInst>(I))
-+            continue;
-+        if (auto *II = dyn_cast<IntrinsicInst>(I)) {
-+            if (II->getIntrinsicID() == Intrinsic::eh_typeid_for) {
++        if (isa<LandingPadInst>(I) || isa<CatchPadInst>(I) ||
++            isa<CatchSwitchInst>(I) || isa<CatchReturnInst>(I))
 +                continue;
-+            }
++        if (auto *II = dyn_cast<IntrinsicInst>(I)) {
++                if (II->getIntrinsicID() == Intrinsic::eh_typeid_for) {
++        continue;
++                }
 +        }
 +
 +        for (unsigned int i = 0; i < I->getNumOperands(); ++i) {
-+            if (isa<ConstantExpr>(I->getOperand(i)))
-+                WorkList.insert(I);
++                if (isa<ConstantExpr>(I->getOperand(i)))
++        WorkList.insert(I);
 +        }
 +    }
 +
@@ -5264,35 +5351,35 @@ index 000000000000..33bc9491e615
 +        WorkList.erase(*It);
 +
 +        if (PHINode *PHI = dyn_cast<PHINode>(I)) {
-+            for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
-+                Instruction *TI = PHI->getIncomingBlock(i)->getTerminator();
-+                if (ConstantExpr *CE = dyn_cast<ConstantExpr>(PHI->getIncomingValue(i))) {
-+                    Instruction *NewInst = CE->getAsInstruction();
-+                    NewInst->insertBefore(TI);
-+                    PHI->setIncomingValue(i, NewInst);
-+                    WorkList.insert(NewInst);
-+                }
-+            }
++                for (unsigned int i = 0; i < PHI->getNumIncomingValues(); ++i) {
++        Instruction *TI = PHI->getIncomingBlock(i)->getTerminator();
++        if (ConstantExpr *CE =
++                dyn_cast<ConstantExpr>(PHI->getIncomingValue(i))) {
++          Instruction *NewInst = CE->getAsInstruction();
++          NewInst->insertBefore(TI);
++          PHI->setIncomingValue(i, NewInst);
++          WorkList.insert(NewInst);
 +        }
-+        else {
-+            for (unsigned int i = 0; i < I->getNumOperands(); ++i) {
-+                if (ConstantExpr *CE = dyn_cast<ConstantExpr>(I->getOperand(i))) {
-+                    Instruction *NewInst = CE->getAsInstruction();
-+                    NewInst->insertBefore(I);
-+                    I->replaceUsesOfWith(CE, NewInst);
-+                    WorkList.insert(NewInst);
 +                }
-+            }
++        } else {
++                for (unsigned int i = 0; i < I->getNumOperands(); ++i) {
++        if (ConstantExpr *CE = dyn_cast<ConstantExpr>(I->getOperand(i))) {
++          Instruction *NewInst = CE->getAsInstruction();
++          NewInst->insertBefore(I);
++          I->replaceUsesOfWith(CE, NewInst);
++          WorkList.insert(NewInst);
++        }
++                }
 +        }
 +    }
 +}
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/Utils.h b/llvm/lib/Passes/Obfuscation/Utils.h
 new file mode 100644
-index 000000000000..d0431b3744ba
+index 000000000000..bd893b642ea2
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/Utils.h
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,35 @@
 +#ifndef LLVM_UTILS_H
 +#define LLVM_UTILS_H
 +// LLVM libs
@@ -5317,9 +5404,6 @@ index 000000000000..d0431b3744ba
 +#define CONST_I32(V) ConstantInt::get(TYPE_I32, V, false)
 +#define CONST(T, V) ConstantInt::get(T, V)
 +extern llvm::LLVMContext *CONTEXT;
-+// fla和bcf在混淆部分函数时会报错, 所以无法用命令行开启整体混淆
-+// 而且Visual Studio似乎没法把 annotate 传给LLVM, 只能用函数名控制
-+extern bool obf_function_name_cmd;
 +using namespace std;
 +namespace llvm{
 +    std::string readAnnotate(Function *f); // 读取llvm.global.annotations中的annotation值
@@ -5328,17 +5412,16 @@ index 000000000000..d0431b3744ba
 +    void FixBasicBlockConstantExpr(BasicBlock *BB);
 +    void FixFunctionConstantExpr(Function *Func);
 +    string rand_str(int len);
-+    // LLVM-MSVC有这个函数, 官方版LLVM没有 (LLVM:17.0.6 | LLVM-MSVC:3.2.6)
 +    void LowerConstantExpr(Function &F);
-+}
++    }
 +#endif // LLVM_UTILS_H
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/Obfuscation/compat/CallSite.h b/llvm/lib/Passes/Obfuscation/compat/CallSite.h
 new file mode 100644
-index 000000000000..d75a9da4216e
+index 000000000000..ca0cc7b29b69
 --- /dev/null
 +++ b/llvm/lib/Passes/Obfuscation/compat/CallSite.h
-@@ -0,0 +1,767 @@
+@@ -0,0 +1,766 @@
 +// TypeART library
 +//
 +// Copyright (c) 2017-2022 TypeART Authors
@@ -5368,7 +5451,7 @@ index 000000000000..d75a9da4216e
 +//
 +//===----------------------------------------------------------------------===//
 +
-+//#include "llvm/ADT/Optional.h"// Soule.llvm17.update: Legacy alias of llvm::Optional to std::optional
++#include "llvm/ADT/Optional.h"
 +#include "llvm/ADT/PointerIntPair.h"
 +#include "llvm/ADT/iterator_range.h"
 +#include "llvm/IR/Attributes.h"
@@ -5488,8 +5571,7 @@ index 000000000000..d75a9da4216e
 +    return true;
 +  }
 +
-+// Soule
-+  /* /// Set the callee to the specified value.  Unlike the function of the same
++  /// Set the callee to the specified value.  Unlike the function of the same
 +  /// name on CallBase, does not modify the type!
 +  void setCalledFunction(Value* V) {
 +    const auto elem_type = [&V]() {
@@ -5504,7 +5586,7 @@ index 000000000000..d75a9da4216e
 +    // assert(elem_type() == cast<CallBase>(getInstruction())->getFunctionType() &&
 +    //        "New callee type does not match FunctionType on call");
 +    *getCallee() = V;
-+  }*/
++  }
 +
 +  /// Return the intrinsic ID of the intrinsic called by this CallSite,
 +  /// or Intrinsic::not_intrinsic if the called function is not an
@@ -5950,11 +6032,11 @@ index 000000000000..d75a9da4216e
 +    CALLSITE_DELEGATE_GETTER(getOperandBundleAt(Index));
 +  }
 +
-+  std::optional<OperandBundleUse> getOperandBundle(StringRef Name) const { // Soule.llvm17.update
++  Optional<OperandBundleUse> getOperandBundle(StringRef Name) const {
 +    CALLSITE_DELEGATE_GETTER(getOperandBundle(Name));
 +  }
 +
-+  std::optional<OperandBundleUse> getOperandBundle(uint32_t ID) const { // Soule.llvm17.update
++  Optional<OperandBundleUse> getOperandBundle(uint32_t ID) const {
 +    CALLSITE_DELEGATE_GETTER(getOperandBundle(ID));
 +  }
 +
@@ -6108,31 +6190,31 @@ index 000000000000..d75a9da4216e
 +#endif  // LLVM_IR_CALLSITE_H
 \ No newline at end of file
 diff --git a/llvm/lib/Passes/PassBuilder.cpp b/llvm/lib/Passes/PassBuilder.cpp
-index d0cbbcc0e310..22179947f6b2 100644
+index e251d56463a3..f4a33f688212 100644
 --- a/llvm/lib/Passes/PassBuilder.cpp
 +++ b/llvm/lib/Passes/PassBuilder.cpp
-@@ -261,6 +261,16 @@
- #include "llvm/Transforms/Vectorize/SLPVectorizer.h"
+@@ -257,6 +257,16 @@
  #include "llvm/Transforms/Vectorize/VectorCombine.h"
  #include <optional>
-+// 引用 Obfuscation 相关文件
-+#include "Obfuscation/BogusControlFlow.h" // 虚假控制流
-+#include "Obfuscation/Flattening.h"  // 控制流平坦化
-+#include "Obfuscation/SplitBasicBlock.h" // 基本块分割
-+#include "Obfuscation/Substitution.h" // 指令替换
-+#include "Obfuscation/StringEncryption.h" // 字符串加密
-+#include "Obfuscation/IndirectGlobalVariable.h" // 间接全局变量
-+#include "Obfuscation/IndirectBranch.h" // 间接跳转
-+#include "Obfuscation/IndirectCall.h" // 间接调用
-+#include "Obfuscation/Utils.h" // 为了控制函数名混淆开关 (bool obf_function_name_cmd;)
  
++// Soule
++#include "Obfuscation/BogusControlFlow.h" // ��ٿ�����
++#include "Obfuscation/Flattening.h"  // ������ƽ̹��
++#include "Obfuscation/SplitBasicBlock.h" // ������ָ�
++#include "Obfuscation/Substitution.h"
++#include "Obfuscation/StringEncryption.h" // �ַ�������
++#include "Obfuscation/IndirectGlobalVariable.h"
++#include "Obfuscation/IndirectBranch.h" // �����ת
++#include "Obfuscation/IndirectCall.h" // ��ӵ���
++
  using namespace llvm;
  
-@@ -401,6 +411,17 @@ public:
+ static const Regex DefaultAliasRegex(
+@@ -396,6 +406,17 @@ public:
  
  } // namespace
  
-+// 添加命令行支持
++// Soule: Obfuscation Flags Begin
 +static cl::opt<bool> s_obf_split("split", cl::init(false), cl::desc("SplitBasicBlock: split_num=3(init)"));
 +static cl::opt<bool> s_obf_sobf("sobf", cl::init(false), cl::desc("String Obfuscation"));
 +static cl::opt<bool> s_obf_fla("fla", cl::init(false), cl::desc("Flattening"));
@@ -6141,37 +6223,32 @@ index d0cbbcc0e310..22179947f6b2 100644
 +static cl::opt<bool> s_obf_ibr("ibr", cl::init(false), cl::desc("Indirect Branch"));
 +static cl::opt<bool> s_obf_igv("igv", cl::init(false), cl::desc("Indirect Global Variable"));
 +static cl::opt<bool> s_obf_icall("icall", cl::init(false), cl::desc("Indirect Call"));
-+static cl::opt<bool> s_obf_fn_name_cmd("fncmd", cl::init(false), cl::desc("use function name control obfuscation(_ + command + _ | example: function_fla_bcf_)"));
++// Soule: Obfuscation Flags End
 +
  PassBuilder::PassBuilder(TargetMachine *TM, PipelineTuningOptions PTO,
                           std::optional<PGOOptions> PGOOpt,
                           PassInstrumentationCallbacks *PIC)
-@@ -436,6 +457,30 @@ PassBuilder::PassBuilder(TargetMachine *TM, PipelineTuningOptions PTO,
+@@ -431,6 +452,25 @@ PassBuilder::PassBuilder(TargetMachine *TM, PipelineTuningOptions PTO,
    PIC->addClassToPassName(decltype(CREATE_PASS)::name(), NAME);
  #include "PassRegistry.def"
    }
-+  
++
 +  // Soule
 +  outs() << "[Soule] registerPipelineStartEPCallback\n";
 +  this->registerPipelineStartEPCallback(
 +      [](llvm::ModulePassManager &MPM,
 +         llvm::OptimizationLevel Level) {
 +        outs() << "[Soule] run.PipelineStartEPCallback\n";
-+        obf_function_name_cmd = s_obf_fn_name_cmd;
-+        if (obf_function_name_cmd) {
-+          outs() << "[Soule] enable function name control obfuscation(_ + command + _ | example: function_fla_)\n";
-+        }
-+        MPM.addPass(StringEncryptionPass(s_obf_sobf)); // 先进行字符串加密 出现字符串加密基本块以后再进行基本块分割和其他混淆 加大解密难度
++        MPM.addPass(StringEncryptionPass(s_obf_sobf)); // �Ƚ����ַ������� �����ַ������ܻ������Ժ��ٽ��л�����ָ���������� �Ӵ�����Ѷ�
 +        llvm::FunctionPassManager FPM;
-+        FPM.addPass(IndirectCallPass(s_obf_icall)); // 间接调用
-+        FPM.addPass(SplitBasicBlockPass(s_obf_split)); // 优先进行基本块分割
-+        FPM.addPass(FlatteningPass(s_obf_fla)); // 对于控制流平坦化
-+        FPM.addPass(SubstitutionPass(s_obf_sub)); // 指令替换
-+        FPM.addPass(BogusControlFlowPass(s_obf_bcf)); // 虚假控制流
++        FPM.addPass(IndirectCallPass(s_obf_icall)); // ��ӵ���
++        FPM.addPass(SplitBasicBlockPass(s_obf_split)); // ���Ƚ��л�����ָ�
++        FPM.addPass(FlatteningPass(s_obf_fla)); // ���ڿ�����ƽ̹��
++        FPM.addPass(SubstitutionPass(s_obf_sub));
++        FPM.addPass(BogusControlFlowPass(s_obf_bcf)); // ��ٿ�����
 +        MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
-+        MPM.addPass(IndirectBranchPass(s_obf_ibr)); // 间接指令 理论上间接指令应该放在最后
-+        MPM.addPass(IndirectGlobalVariablePass(s_obf_igv)); // 间接全局变量
-+        MPM.addPass(RewriteSymbolPass()); // 根据yaml信息 重命名特定symbols
++        MPM.addPass(IndirectBranchPass(s_obf_ibr)); // ���ָ�� �����ϼ��ָ��Ӧ�÷������
++        MPM.addPass(IndirectGlobalVariablePass(s_obf_igv));
 +      }
 +  );
  }
